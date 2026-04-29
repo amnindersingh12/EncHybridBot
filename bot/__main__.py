@@ -6,8 +6,7 @@ import logging
 from pyrogram import Client
 from bot.config import (
     APP_ID, API_HASH, BOT_TOKEN, WORKERS,
-    FLOOD_SLEEP_THRESHOLD, LOCK_ON_STARTUP,
-    ALWAYS_DEPLOY_LATEST,
+    LOCK_ON_STARTUP, ALWAYS_DEPLOY_LATEST,
 )
 from bot.handlers.handlers import register
 from bot.db.database import set_lock
@@ -31,7 +30,6 @@ async def main():
         api_hash=API_HASH,
         bot_token=BOT_TOKEN,
         workers=WORKERS,
-        flood_sleep_threshold=FLOOD_SLEEP_THRESHOLD,
     )
 
     register(app)
