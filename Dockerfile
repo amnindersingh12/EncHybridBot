@@ -7,7 +7,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     curl \
     aria2 \
-    libsvtav1-enc0 \
     && curl -LsSf https://astral.sh/uv/install.sh | sh \
     && rm -rf /var/lib/apt/lists/*
 
