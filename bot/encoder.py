@@ -13,6 +13,7 @@ import traceback
 from pathlib import Path
 
 from pyrogram import Client
+from pyrogram.enums import ParseMode
 from pyrogram.types import Message
 
 from bot.config import (
@@ -53,7 +54,7 @@ def _progress_bar(pct: float, width: int = 12) -> str:
 
 async def _edit_safe(msg: Message, text: str):
     try:
-        await msg.edit_text(text, parse_mode="html")
+        await msg.edit_text(text, parse_mode=ParseMode.HTML)
     except Exception:
         pass
 
@@ -255,7 +256,7 @@ async def upload_video(client: Client, chat_id: int,
         chat_id=chat_id,
         caption=caption,
         thumb=thumb_path,
-        parse_mode="html",
+        parse_mode=ParseMode.HTML,
         progress=progress,
         has_spoiler=spoiler,
     )
@@ -372,7 +373,7 @@ async def run_encode_pipeline(
         await _edit_safe(status_msg, f"❌ Error: <code>{e}</code>")
         if LOG_CHANNEL and LOGS_IN_CHANNEL:
             await client.send_message(LOG_CHANNEL,
-                f"#ERROR\n<pre>{err[:3000]}</pre>", parse_mode="html")
+                f"#ERROR\n<pre>{err[:3000]}</pre>", parse_mode=ParseMode.HTML)
     finally:
         for p in [input_path, output_path]:
             if p and os.path.exists(p):

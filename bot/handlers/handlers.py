@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 
 from pyrogram import Client, filters
+from pyrogram.enums import ParseMode
 from pyrogram.types import (
     Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
 )
@@ -59,7 +60,7 @@ async def cmd_start(client: Client, message: Message):
         "Send me a video and I'll encode it to <b>AV1 / HEVC x265 / HEVC x264</b> "
         "(10-bit, dual audio).\n\n"
         "Use /help to see all commands.",
-        parse_mode="html",
+        parse_mode=ParseMode.HTML,
     )
 
 
@@ -111,7 +112,7 @@ HELP_TEXT = """
 
 
 async def cmd_help(client: Client, message: Message):
-    await message.reply(HELP_TEXT, parse_mode="html")
+    await message.reply(HELP_TEXT, parse_mode=ParseMode.HTML)
 
 
 # ─── Video handler ───────────────────────────────────────────────────────────
@@ -126,7 +127,7 @@ async def handle_video(client: Client, message: Message):
     if qs >= MAX_QUEUE:
         return await message.reply(f"⏳ Queue full ({qs}/{MAX_QUEUE}). Try later.")
 
-    status_msg = await message.reply("⏳ <b>Queued...</b>", parse_mode="html")
+    status_msg = await message.reply("⏳ <b>Queued...</b>", parse_mode=ParseMode.HTML)
 
     async with _encode_sem:
         await run_encode_pipeline(client, message, status_msg, user_id)
@@ -214,7 +215,7 @@ async def cb_codec(client: Client, query: CallbackQuery):
     _, codec = query.data.split("|")
     await set_codec(query.from_user.id, codec)
     await query.answer(f"✅ Codec set to {codec_display_name(codec)}")
-    await query.message.edit_text(f"✅ Codec: <b>{codec_display_name(codec)}</b>", parse_mode="html")
+    await query.message.edit_text(f"✅ Codec: <b>{codec_display_name(codec)}</b>", parse_mode=ParseMode.HTML)
 
 
 # ─── /setcrf ─────────────────────────────────────────────────────────────────
@@ -223,12 +224,12 @@ async def cmd_setcrf(client: Client, message: Message):
     parts = message.text.split()
     if len(parts) < 2 or not parts[1].isdigit():
         cur = await get_crf(message.from_user.id)
-        return await message.reply(f"Current CRF: <b>{cur}</b>\nUsage: /setcrf 24", parse_mode="html")
+        return await message.reply(f"Current CRF: <b>{cur}</b>\nUsage: /setcrf 24", parse_mode=ParseMode.HTML)
     crf = int(parts[1])
     if not 0 <= crf <= 63:
         return await message.reply("CRF must be 0–63.")
     await set_crf(message.from_user.id, crf)
-    await message.reply(f"✅ CRF set to <b>{crf}</b>", parse_mode="html")
+    await message.reply(f"✅ CRF set to <b>{crf}</b>", parse_mode=ParseMode.HTML)
 
 
 # ─── /setpreset ──────────────────────────────────────────────────────────────
@@ -243,14 +244,14 @@ async def cmd_setpreset(client: Client, message: Message):
         for p in presets
     ]
     await message.reply(f"🎛 Choose preset for <b>{codec_display_name(codec)}</b>:",
-                        reply_markup=InlineKeyboardMarkup(buttons), parse_mode="html")
+                        reply_markup=InlineKeyboardMarkup(buttons), parse_mode=ParseMode.HTML)
 
 
 async def cb_preset(client: Client, query: CallbackQuery):
     _, preset = query.data.split("|")
     await set_preset(query.from_user.id, preset)
     await query.answer(f"✅ Preset: {preset}")
-    await query.message.edit_text(f"✅ Preset: <b>{preset}</b>", parse_mode="html")
+    await query.message.edit_text(f"✅ Preset: <b>{preset}</b>", parse_mode=ParseMode.HTML)
 
 
 # ─── /setbitdepth ─────────────────────────────────────────────────────────────
@@ -260,9 +261,9 @@ async def cmd_setbitdepth(client: Client, message: Message):
     if len(parts) < 2 or parts[1] not in ("8", "10"):
         cur = await get_bit_depth(message.from_user.id)
         return await message.reply(f"Current bit depth: <b>{cur}</b>\nUsage: /setbitdepth 8|10",
-                                   parse_mode="html")
+                                   parse_mode=ParseMode.HTML)
     await set_bit_depth(message.from_user.id, int(parts[1]))
-    await message.reply(f"✅ Bit depth: <b>{parts[1]}</b>", parse_mode="html")
+    await message.reply(f"✅ Bit depth: <b>{parts[1]}</b>", parse_mode=ParseMode.HTML)
 
 
 # ─── /dualaudio ───────────────────────────────────────────────────────────────
@@ -273,10 +274,10 @@ async def cmd_dualaudio(client: Client, message: Message):
     if len(parts) < 2:
         cur = await get_dual_audio(user_id)
         return await message.reply(f"Dual audio: <b>{'on' if cur else 'off'}</b>\nUsage: /dualaudio on|off",
-                                   parse_mode="html")
+                                   parse_mode=ParseMode.HTML)
     val = parts[1].lower() == "on"
     await set_dual_audio(user_id, val)
-    await message.reply(f"✅ Dual audio: <b>{'on' if val else 'off'}</b>", parse_mode="html")
+    await message.reply(f"✅ Dual audio: <b>{'on' if val else 'off'}</b>", parse_mode=ParseMode.HTML)
 
 
 # ─── /setprefix / /setsuffix ─────────────────────────────────────────────────
@@ -287,9 +288,9 @@ async def cmd_setprefix(client: Client, message: Message):
     if len(parts) < 2:
         cur = await get_prefix(user_id)
         return await message.reply(f"Current prefix: <code>{cur or '(none)'}</code>\nUsage: /setprefix [text]",
-                                   parse_mode="html")
+                                   parse_mode=ParseMode.HTML)
     await set_prefix(user_id, parts[1].strip())
-    await message.reply(f"✅ Prefix: <code>{parts[1].strip()}</code>", parse_mode="html")
+    await message.reply(f"✅ Prefix: <code>{parts[1].strip()}</code>", parse_mode=ParseMode.HTML)
 
 
 async def cmd_setsuffix(client: Client, message: Message):
@@ -298,9 +299,9 @@ async def cmd_setsuffix(client: Client, message: Message):
     if len(parts) < 2:
         cur = await get_suffix(user_id)
         return await message.reply(f"Current suffix: <code>{cur or '(none)'}</code>\nUsage: /setsuffix [text]",
-                                   parse_mode="html")
+                                   parse_mode=ParseMode.HTML)
     await set_suffix(user_id, parts[1].strip())
-    await message.reply(f"✅ Suffix: <code>{parts[1].strip()}</code>", parse_mode="html")
+    await message.reply(f"✅ Suffix: <code>{parts[1].strip()}</code>", parse_mode=ParseMode.HTML)
 
 
 # ─── /setrename / /clearrename ───────────────────────────────────────────────
@@ -314,9 +315,9 @@ async def cmd_setrename(client: Client, message: Message):
             f"Current rule: <code>{cur or '(none)'}</code>\n"
             "Usage: /setrename pattern|replacement\n"
             "Example: /setrename \\[BD\\]|[Blu-ray]",
-            parse_mode="html")
+            parse_mode=ParseMode.HTML)
     await set_rename_rule(user_id, parts[1].strip())
-    await message.reply(f"✅ Rename rule set: <code>{parts[1].strip()}</code>", parse_mode="html")
+    await message.reply(f"✅ Rename rule set: <code>{parts[1].strip()}</code>", parse_mode=ParseMode.HTML)
 
 
 async def cmd_clearrename(client: Client, message: Message):
@@ -373,7 +374,7 @@ async def cmd_mysettings(client: Client, message: Message):
         f"🔄 Rename Rule: <code>{rule or '(none)'}</code>\n"
         f"🖼 Custom Thumb: <code>{'yes' if has_thumb else 'no'}</code>"
     )
-    await message.reply(text, parse_mode="html")
+    await message.reply(text, parse_mode=ParseMode.HTML)
 
 
 # ─── /reset ──────────────────────────────────────────────────────────────────
@@ -392,7 +393,7 @@ async def cmd_queue(client: Client, message: Message):
     locked = await is_locked()
     await message.reply(
         f"📋 Queue: <b>{qs}</b> tasks\n🔒 Locked: <b>{'yes' if locked else 'no'}</b>",
-        parse_mode="html")
+        parse_mode=ParseMode.HTML)
 
 
 # ─── /lock / /unlock ─────────────────────────────────────────────────────────
@@ -429,7 +430,7 @@ async def cmd_stats(client: Client, message: Message):
         f"💾 RAM: <code>{ram.used//1e6:.0f} / {ram.total//1e6:.0f} MB</code>\n"
         f"💿 Disk (/tmp): <code>{disk.used//1e9:.1f} / {disk.total//1e9:.1f} GB</code>\n"
         f"📋 Queue: <code>{qs}</code>",
-        parse_mode="html")
+        parse_mode=ParseMode.HTML)
 
 
 # ─── /broadcast ──────────────────────────────────────────────────────────────
