@@ -63,10 +63,32 @@ Encodes video to **AV1 / HEVC x265 / HEVC x264** (10-bit, dual audio) via FFmpeg
 
 ## Setup
 
-1. Clone repo and copy `.env.sample` → `.env`
-2. Fill in APP_ID, API_HASH, BOT_TOKEN, OWNER, DATABASE_URL
-3. Build & run:
+### Local Setup (Virtual Environment)
+1. Clone the repo and navigate into the directory:
+   ```bash
+   git clone https://github.com/YOUR_USERNAME/EncHybridBot
+   cd EncHybridBot
+   ```
+2. Create and activate a virtual environment:
+   ```bash
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+3. Install the required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+4. Copy `.env.sample` to `.env` and fill in your variables (`APP_ID`, `API_HASH`, `BOT_TOKEN`, `OWNER`, `DATABASE_URL`).
+5. Ensure `ffmpeg` is installed on your system (`sudo apt install ffmpeg` on Ubuntu/Debian).
+6. Start the bot:
+   ```bash
+   python3 -m bot
+   ```
 
+### Docker Setup
+1. Clone the repo and copy `.env.sample` → `.env`
+2. Fill in your variables: `APP_ID`, `API_HASH`, `BOT_TOKEN`, `OWNER`, `DATABASE_URL`
+3. Build & run:
 ```bash
 docker build -t enchybrid .
 docker run --env-file .env enchybrid
