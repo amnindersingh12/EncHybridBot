@@ -308,7 +308,7 @@ async def run_encode_pipeline(
         sub_count    = count_streams(info, "subtitle")
 
         # 4. Build output path
-        orig_name    = Path(input_path).name
+        orig_name    = os.path.basename(input_path)
         codec_tag    = f"[{codec_display_name(codec)}]"
         new_name     = apply_rename_rules(
             orig_name, prefix=prefix, suffix=suffix,
@@ -316,8 +316,9 @@ async def run_encode_pipeline(
             codec_tag=codec_tag,
         )
         new_name     = sanitize_filename(new_name)
-        new_name     = Path(new_name).stem + ".mkv"
-        output_path  = str(ENCODE_DIR / new_name)
+        new_base     = os.path.splitext(new_name)[0]
+        new_name     = new_base + ".mkv"
+        output_path  = os.path.join(str(ENCODE_DIR), new_name)
 
         # 5. Build profile
         profile = EncodeProfile(
@@ -370,6 +371,7 @@ async def run_encode_pipeline(
 
     except Exception as e:
         err = traceback.format_exc()
+        log.error(f"Error in encode pipeline: {err}")
         await _edit_safe(status_msg, f"❌ Error: <code>{e}</code>")
         if LOG_CHANNEL and LOGS_IN_CHANNEL:
             await client.send_message(LOG_CHANNEL,
