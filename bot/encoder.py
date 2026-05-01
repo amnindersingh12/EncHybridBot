@@ -10,7 +10,10 @@ import json
 import math
 import subprocess
 import traceback
+import logging
 from pathlib import Path
+
+log = logging.getLogger(__name__)
 
 from pyrogram import Client
 from pyrogram.enums import ParseMode
@@ -93,11 +96,20 @@ async def extract_thumbnail(video_path: str, at: float = 5.0) -> str:
     return out if os.path.exists(out) else ""
 
 
-async def resolve_thumbnail(user_id: int, video_path: str) -> str:
+async def resolve_thumbnail(user_id: int, video_path: str, client: Client) -> str:
     """Return path to thumbnail: user's custom → auto-extract → empty."""
     user_thumb = await get_thumbnail(user_id)
     if user_thumb:
-        return user_thumb   # Telegram file_id, used directly in upload
+        if user_thumb.startswith("/") and os.path.exists(user_thumb):
+            return user_thumb
+        # If it's a file_id, download it first because Pyrogram 2.x thumb must be a local file
+        try:
+            path = await client.download_media(user_thumb, file_name=str(THUMB_DIR) + "/")
+            if path and os.path.exists(path):
+                return path
+        except Exception as e:
+            log.warning(f"Failed to download user thumbnail: {e}")
+
     return await extract_thumbnail(video_path)
 
 
@@ -337,10 +349,8 @@ async def run_encode_pipeline(
             return
 
         # 7. Thumbnail
-        thumb = await resolve_thumbnail(user_id, output_path)
-        # If it's a file_id (from DB) use it; if it's a path verify it exists
-        thumb_arg = thumb if (thumb and (thumb.startswith("/") and os.path.exists(thumb))) \
-                    else (thumb if thumb and not thumb.startswith("/") else None)
+        thumb = await resolve_thumbnail(user_id, output_path, client)
+        thumb_arg = thumb if (thumb and os.path.exists(thumb)) else None
 
         # 8. Caption
         cap_lines = [
