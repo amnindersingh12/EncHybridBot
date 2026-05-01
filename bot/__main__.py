@@ -12,7 +12,7 @@ from bot.handlers.handlers import register
 from bot.db.database import set_lock
 
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 log = logging.getLogger("encbot")
