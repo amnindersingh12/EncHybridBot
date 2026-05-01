@@ -19,6 +19,7 @@ from bot.config import (
 from bot.encoder import (
     run_encode_pipeline, generate_sample, generate_screenshots,
     download_file, probe, get_duration, DOWNLOAD_DIR, ENCODE_DIR,
+    cancel_current_job,
 )
 from bot.utils.ffmpeg_builder import CODECS, preset_for_codec, codec_display_name
 from bot.db.database import (
@@ -396,6 +397,18 @@ async def cmd_queue(client: Client, message: Message):
         parse_mode=ParseMode.HTML)
 
 
+async def cmd_cancel(client: Client, message: Message):
+    user_id = message.from_user.id
+    if not is_authorized(user_id):
+        return await message.reply("⛔ Not authorized.")
+    
+    success = await cancel_current_job()
+    if success:
+        await message.reply("🛑 <b>Encoding cancelled!</b>", parse_mode=ParseMode.HTML)
+    else:
+        await message.reply("❌ No active encoding job to cancel.")
+
+
 # ─── /lock / /unlock ─────────────────────────────────────────────────────────
 
 @owner_only
@@ -477,6 +490,7 @@ def register(app: Client):
     app.on_message(filters.command("mysettings"))(cmd_mysettings)
     app.on_message(filters.command("reset"))(cmd_reset)
     app.on_message(filters.command("queue"))(cmd_queue)
+    app.on_message(filters.command("cancel"))(cmd_cancel)
     app.on_message(filters.command("lock"))(cmd_lock)
     app.on_message(filters.command("unlock"))(cmd_unlock)
     app.on_message(filters.command("clearqueue"))(cmd_clearqueue)

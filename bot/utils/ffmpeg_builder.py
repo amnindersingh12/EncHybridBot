@@ -21,7 +21,7 @@ PRESET_MAP = {
 }
 
 DEFAULT_CRF = {"av1": 30, "hevc265": 24, "hevc264": 22}
-DEFAULT_PRESET = {"av1": "8", "hevc265": "slow", "hevc264": "slow"}
+DEFAULT_PRESET = {"av1": "8", "hevc265": "ultrafast", "hevc264": "ultrafast"}
 
 
 @dataclass
@@ -48,9 +48,13 @@ def _pixel_fmt(bit_depth: int, codec: str) -> str:
 def _audio_args(profile: EncodeProfile, src_audio_count: int) -> list[str]:
     """
     Build audio mapping args.
+    No audio: skip audio entirely.
     Dual-audio: keep both tracks as AAC 192k.
     Single: keep first track only.
     """
+    if src_audio_count == 0:
+        return ["-an"]
+
     args = []
     if profile.dual_audio and src_audio_count >= 2:
         # map both tracks
@@ -77,10 +81,15 @@ def build_command(
 
     lib   = CODECS.get(profile.codec, "libx265")
     crf   = profile.crf   if profile.crf   is not None else DEFAULT_CRF.get(profile.codec, 24)
-    pset  = profile.preset if profile.preset else DEFAULT_PRESET.get(profile.codec, "slow")
+    pset  = profile.preset if profile.preset else DEFAULT_PRESET.get(profile.codec, "ultrafast")
     pix   = _pixel_fmt(profile.bit_depth, profile.codec)
 
-    cmd: list[str] = ["-hide_banner", "-loglevel", "warning", "-stats"]
+    # Validate preset: if a numeric AV1 preset leaked into x264/x265, reset it
+    valid_presets = PRESET_MAP.get(profile.codec, [])
+    if valid_presets and pset not in valid_presets:
+        pset = DEFAULT_PRESET.get(profile.codec, "ultrafast")
+
+    cmd: list[str] = ["-hide_banner", "-loglevel", "warning", "-stats", "-threads", "2"]
     cmd += ["-i", input_path]
 
     # ── Video ──
@@ -93,7 +102,7 @@ def build_command(
 
     # codec-specific params
     if profile.codec == "hevc265":
-        x265_params = f"no-sao=1:bframes=8:psy-rd=1.5:aq-mode=3:limit-sao=1:ctu=32"
+        x265_params = "pools=2:frame-threads=2:lookahead-slices=2:no-sao=1:bframes=3:aq-mode=1:rc-lookahead=10:ctu=32"
         cmd += ["-x265-params", x265_params]
     elif profile.codec == "hevc264":
         cmd += ["-profile:v", "high10" if profile.bit_depth == 10 else "high"]

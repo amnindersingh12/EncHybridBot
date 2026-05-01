@@ -1,0 +1,19 @@
+[Unit]
+Description=EncHybrid Bot Service
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/Desktop/gitwork/EncHybridBot
+ExecStart=/home/ubuntu/Desktop/gitwork/EncHybridBot/venv/bin/python3 -m bot
+Restart=always
+RestartSec=10
+StandardOutput=append:/home/ubuntu/Desktop/gitwork/EncHybridBot/bot.log
+StandardError=append:/home/ubuntu/Desktop/gitwork/EncHybridBot/bot.log
+# Pin bot + ffmpeg to CPU cores 0 and 1 only
+CPUAffinity=0 1
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

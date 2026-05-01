@@ -5,6 +5,7 @@ Download → probe → encode → rename → upload → cleanup
 from __future__ import annotations
 import asyncio
 import os
+import re
 import time
 import json
 import math
@@ -16,7 +17,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 from pyrogram import Client
-from pyrogram.enums import ParseMode
+from pyrogram.enums import ParseMode, ChatAction
 from pyrogram.types import Message
 
 from bot.config import (
@@ -40,6 +41,18 @@ THUMB_DIR    = Path("/tmp/encbot/thumbs")
 
 for d in (DOWNLOAD_DIR, ENCODE_DIR, THUMB_DIR):
     d.mkdir(parents=True, exist_ok=True)
+
+_current_proc: subprocess.Process | None = None
+
+async def cancel_current_job() -> bool:
+    global _current_proc
+    if _current_proc and _current_proc.returncode is None:
+        try:
+            _current_proc.terminate()
+            return True
+        except Exception:
+            pass
+    return False
 
 
 # ─── Progress helper ──────────────────────────────────────────────────────────
@@ -70,7 +83,14 @@ def probe(path: str) -> dict:
         "-show_streams", "-show_format", str(path)
     ]
     result = subprocess.run(cmd, capture_output=True, text=True)
-    return json.loads(result.stdout) if result.returncode == 0 else {}
+    if result.returncode != 0:
+        log.warning(f"ffprobe failed for {path}: {result.stderr[:200]}")
+        return {}
+    try:
+        return json.loads(result.stdout)
+    except json.JSONDecodeError:
+        log.warning(f"ffprobe returned invalid JSON for {path}")
+        return {}
 
 
 def get_duration(info: dict) -> float:
@@ -135,6 +155,9 @@ async def generate_screenshots(video_path: str, count: int = SCREENSHOT_COUNT,
     if duration <= 0:
         info = probe(video_path)
         duration = get_duration(info)
+    if duration <= 0:
+        log.warning("Cannot generate screenshots: duration is 0")
+        return []
     paths = []
     step = duration / (count + 1)
     for i in range(1, count + 1):
@@ -174,16 +197,26 @@ async def download_file(client: Client, message: Message,
 
     path = await client.download_media(message, file_name=str(DOWNLOAD_DIR) + "/",
                                         progress=progress)
+    if path:
+        log.info(f"Downloaded: {path} ({os.path.getsize(path)/1e6:.1f} MB)")
+    else:
+        log.warning("download_media returned None")
     return path
 
 
 # ─── Encode ──────────────────────────────────────────────────────────────────
 
+_RE_TIME = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
+_RE_SPEED = re.compile(r"speed=\s*([\d.]+)x")
+
+
 async def encode_video(input_path: str, output_path: str,
                         profile: EncodeProfile, duration: float,
-                        status_msg: Message) -> bool:
+                        status_msg: Message, audio_count: int,
+                        sub_count: int = 0) -> bool:
     cmd = ["ffmpeg"] + build_command(input_path, output_path, profile,
-        src_audio_count=2)
+        src_audio_count=audio_count, src_sub_count=sub_count)
+    log.info(f"ffmpeg command: {' '.join(cmd)}")
     start = time.time()
 
     proc = await asyncio.create_subprocess_exec(
@@ -191,41 +224,60 @@ async def encode_video(input_path: str, output_path: str,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
     )
+    global _current_proc
+    _current_proc = proc
 
     last_edit = [0.0]
     buf = b""
+    full_stderr = []
 
     while True:
         chunk = await proc.stderr.read(512)
         if not chunk:
+            if buf:
+                full_stderr.append(buf.decode(errors="ignore"))
             break
         buf += chunk
-        lines = buf.split(b"\r")
+        # Split on both \r and \n so we catch all ffmpeg output lines
+        lines = re.split(rb"[\r\n]+", buf)
         buf = lines[-1]
         for line in lines[:-1]:
             text = line.decode(errors="ignore")
+            if not text.strip():
+                continue
+            full_stderr.append(text)
             # parse time= field
-            if "time=" in text:
-                m = __import__("re").search(r"time=(\d+):(\d+):(\d+\.\d+)", text)
-                if m:
-                    h, mn, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
-                    elapsed_enc = h * 3600 + mn * 60 + s
-                    pct = min(elapsed_enc / max(duration, 1) * 100, 100)
-                    now = time.time()
-                    if now - last_edit[0] >= 4:
-                        last_edit[0] = now
-                        speed_m = __import__("re").search(r"speed=\s*([\d.]+)x", text)
-                        spd = speed_m.group(1) if speed_m else "?"
-                        bar = _progress_bar(pct)
-                        codec_name = codec_display_name(profile.codec)
-                        asyncio.ensure_future(_edit_safe(status_msg,
-                            f"<b>⚙️ Encoding [{codec_name}]</b>\n"
-                            f"<code>[{bar}] {pct:.1f}%</code>\n"
-                            f"⏱ {_hms(elapsed_enc)} / {_hms(duration)}\n"
-                            f"🚀 Speed: {spd}x"))
+            m = _RE_TIME.search(text)
+            if m:
+                h, mn, s = int(m.group(1)), int(m.group(2)), float(m.group(3))
+                elapsed_enc = h * 3600 + mn * 60 + s
+                pct = min(elapsed_enc / max(duration, 1) * 100, 100)
+                now = time.time()
+                if now - last_edit[0] >= 4:
+                    last_edit[0] = now
+                    speed_m = _RE_SPEED.search(text)
+                    spd = speed_m.group(1) if speed_m else "?"
+                    bar = _progress_bar(pct)
+                    codec_name = codec_display_name(profile.codec)
+                    asyncio.ensure_future(_edit_safe(status_msg,
+                        f"<b>⚙️ Encoding [{codec_name}]</b>\n"
+                        f"<code>[{bar}] {pct:.1f}%</code>\n"
+                        f"⏱ {_hms(elapsed_enc)} / {_hms(duration)}\n"
+                        f"🚀 Speed: {spd}x"))
 
     await proc.wait()
-    return proc.returncode == 0
+    elapsed = time.time() - start
+
+    if proc.returncode != 0:
+        err_msg = "\n".join(full_stderr[-50:]) if full_stderr else "No stderr output captured"
+        log.error(f"ffmpeg failed (rc={proc.returncode}) after {elapsed:.1f}s.\n"
+                  f"Command: {' '.join(cmd)}\n"
+                  f"Stderr:\n{err_msg}")
+        return False
+
+    out_size = os.path.getsize(output_path) / 1e6 if os.path.exists(output_path) else 0
+    log.info(f"Encode finished in {_hms(elapsed)} → {out_size:.1f} MB")
+    return True
 
 
 # ─── Upload ──────────────────────────────────────────────────────────────────
@@ -264,6 +316,10 @@ async def upload_video(client: Client, chat_id: int,
             break
     duration_s = int(get_duration(info))
 
+    # Truncate caption to Telegram's 1024-char limit for media
+    if len(caption) > 1024:
+        caption = caption[:1020] + "..."
+
     kwargs = dict(
         chat_id=chat_id,
         caption=caption,
@@ -295,6 +351,7 @@ async def run_encode_pipeline(
 ):
     input_path = None
     output_path = None
+    thumb_path = None
     try:
         # 1. Fetch user prefs
         codec      = await get_codec(user_id)
@@ -306,8 +363,16 @@ async def run_encode_pipeline(
         dual_audio = await get_dual_audio(user_id)
         bit_depth  = await get_bit_depth(user_id)
 
+        log.info(f"Encode request from user {user_id}: codec={codec} crf={crf} "
+                 f"preset={preset} depth={bit_depth} dual_audio={dual_audio}")
+
         # 2. Download
         await _edit_safe(status_msg, "<b>📥 Starting download...</b>")
+        if ALLOW_ACTION:
+            try:
+                await client.send_chat_action(message.chat.id, ChatAction.UPLOAD_DOCUMENT)
+            except Exception:
+                pass
         input_path = await download_file(client, message, status_msg)
         if not input_path:
             await _edit_safe(status_msg, "❌ Download failed.")
@@ -318,6 +383,14 @@ async def run_encode_pipeline(
         duration     = get_duration(info)
         audio_count  = count_streams(info, "audio")
         sub_count    = count_streams(info, "subtitle")
+        video_count  = count_streams(info, "video")
+
+        log.info(f"Probe: duration={duration:.1f}s video={video_count} "
+                 f"audio={audio_count} subs={sub_count}")
+
+        if video_count == 0:
+            await _edit_safe(status_msg, "❌ No video stream found in file.")
+            return
 
         # 4. Build output path
         orig_name    = os.path.basename(input_path)
@@ -341,27 +414,41 @@ async def run_encode_pipeline(
         # 6. Encode
         await _edit_safe(status_msg, f"<b>⚙️ Starting encode [{codec_display_name(codec)}]...</b>")
         if ALLOW_ACTION:
-            await client.send_chat_action(message.chat.id, "record_video")
+            try:
+                await client.send_chat_action(message.chat.id, ChatAction.RECORD_VIDEO)
+            except Exception:
+                pass
 
-        success = await encode_video(input_path, output_path, profile, duration, status_msg)
+        success = await encode_video(
+            input_path, output_path, profile, duration,
+            status_msg, audio_count, sub_count,
+        )
         if not success or not os.path.exists(output_path):
             await _edit_safe(status_msg, "❌ Encoding failed.")
             return
 
         # 7. Thumbnail
-        thumb = await resolve_thumbnail(user_id, output_path, client)
-        thumb_arg = thumb if (thumb and os.path.exists(thumb)) else None
+        thumb_path = await resolve_thumbnail(user_id, output_path, client)
+        thumb_arg = thumb_path if (thumb_path and os.path.exists(thumb_path)) else None
 
         # 8. Caption
+        out_size_mb = os.path.getsize(output_path) / 1e6
+        in_size_mb = os.path.getsize(input_path) / 1e6 if os.path.exists(input_path) else 0
+        ratio = (1 - out_size_mb / in_size_mb) * 100 if in_size_mb > 0 else 0
         cap_lines = [
             f"🎬 Codec: <code>{codec_display_name(codec)}</code>",
             f"🎵 Audio: {'Dual' if dual_audio and audio_count>=2 else 'Single'} | {bit_depth}-bit",
-            f"📦 Size: {os.path.getsize(output_path)/1e6:.1f} MB",
+            f"📦 Size: {out_size_mb:.1f} MB (↓{ratio:.0f}%)",
         ]
         caption = build_caption(new_name, deco=CAP_DECO, extra_lines=cap_lines)
 
         # 9. Upload to requester
         await _edit_safe(status_msg, "<b>📤 Uploading...</b>")
+        if ALLOW_ACTION:
+            try:
+                await client.send_chat_action(message.chat.id, ChatAction.UPLOAD_VIDEO)
+            except Exception:
+                pass
         await upload_video(
             client, message.chat.id, output_path, thumb_arg,
             caption, status_msg,
@@ -371,11 +458,14 @@ async def run_encode_pipeline(
 
         # 10. Dump to dump channel
         if DUMP_LEECH and DUMP_CHANNEL:
-            await upload_video(
-                client, DUMP_CHANNEL, output_path, thumb_arg,
-                caption, status_msg,
-                as_video=UPLOAD_AS_VIDEO,
-            )
+            try:
+                await upload_video(
+                    client, DUMP_CHANNEL, output_path, thumb_arg,
+                    caption, status_msg,
+                    as_video=UPLOAD_AS_VIDEO,
+                )
+            except Exception as e:
+                log.warning(f"Dump channel upload failed: {e}")
 
         await _edit_safe(status_msg, "✅ <b>Done!</b>")
 
@@ -384,8 +474,11 @@ async def run_encode_pipeline(
         log.error(f"Error in encode pipeline: {err}")
         await _edit_safe(status_msg, f"❌ Error: <code>{e}</code>")
         if LOG_CHANNEL and LOGS_IN_CHANNEL:
-            await client.send_message(LOG_CHANNEL,
-                f"#ERROR\n<pre>{err[:3000]}</pre>", parse_mode=ParseMode.HTML)
+            try:
+                await client.send_message(LOG_CHANNEL,
+                    f"#ERROR\n<pre>{err[:3000]}</pre>", parse_mode=ParseMode.HTML)
+            except Exception:
+                pass
     finally:
         for p in [input_path, output_path]:
             if p and os.path.exists(p):
@@ -393,3 +486,9 @@ async def run_encode_pipeline(
                     os.remove(p)
                 except Exception:
                     pass
+        # Clean up downloaded thumbnail (not user's permanent ones)
+        if thumb_path and thumb_path.startswith(str(THUMB_DIR)) and os.path.exists(thumb_path):
+            try:
+                os.remove(thumb_path)
+            except Exception:
+                pass
