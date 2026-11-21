@@ -37,4 +37,4 @@ jobs:
       - name: Build Docker image
         run: docker build -t app-ci .
       - name: Smoke-test imports inside the image
-        run: docker run --rm --entrypoint python app-ci -c "import sys; print(sys.version)"
+        run: docker run --rm --entrypoint python app-ci -c "import sys, pyrogram, tgcrypto, motor; print(sys.version, pyrogram.__version__)"
