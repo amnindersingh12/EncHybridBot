@@ -1,4 +1,4 @@
-pyrofork>=2.3
+pyrofork>=2.3.69
 tgcrypto>=1.2.5
 motor
 python-dotenv
